@@ -79,6 +79,7 @@ def find_overlapping_tasks(self, tasks: list[Task]) -> list[tuple[Task, Task]]:
     Returns:
         A list of tuples, where each tuple contains two overlapping Task objects.
     """
+
     def time_to_minutes(time_str: str) -> int:
         hrs, mins = map(int, time_str.split(":"))
         return hrs * 60 + mins
@@ -113,7 +114,7 @@ def detect_overlaps(self, tasks: list["Task"]) -> list[tuple["Task", "Task"]]:
     for i, task_a in enumerate(sorted_tasks):
         start_a = to_minutes(task_a.time)
         end_a = start_a + 30
-        for task_b in sorted_tasks[i + 1:]:
+        for task_b in sorted_tasks[i + 1 :]:
             start_b = to_minutes(task_b.time)
             if start_b >= end_a:
                 break

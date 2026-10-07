@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pawpal-plus"
+version = "1.0.0"
+description = "Smart Pet Care Management System — CLI-first Python app"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Gustavo Ramos", email = "codewarrior777@users.noreply.github.com" }
+]
+keywords = ["pets", "scheduler", "cli", "streamlit", "python"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Scheduling",
+]
+dependencies = [
+    "streamlit>=1.30",
+    "tabulate>=0.9",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pre-commit>=3.5",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+pawpal = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/codewarrior777/PawPal-Plus"
+Repository = "https://github.com/codewarrior777/PawPal-Plus"
+Issues = "https://github.com/codewarrior777/PawPal-Plus/issues"
+
+[tool.setuptools]
+py-modules = ["pawpal_system", "main", "app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=pawpal_system --cov-report=term-missing"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"

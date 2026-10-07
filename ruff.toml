@@ -1,0 +1,14 @@
+# Ruff configuration for PawPal+
+
+line-length = 88
+
+[lint]
+# Ignore rules that don't apply to this project:
+#   DTZ011 - we intentionally use timezone-naive date.today() for simplicity
+ignore = [
+    "DTZ011",
+]
+
+[lint.per-file-ignores]
+# Test fixtures can use date.today() freely
+"tests/*" = ["DTZ011"]

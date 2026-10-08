@@ -1,5 +1,25 @@
 # Reflection — PawPal+ (Module 2 Project)
 
+> **Note on iteration:** After submitting **Game Glitch Investigator** (Module 1), I received detailed feedback from the course reviewer. Rather than treating that feedback as a one-time grade correction, I treated it as a **design checklist** for every subsequent project. This reflection explicitly maps each piece of that feedback to a concrete change I made in PawPal+.
+
+---
+
+## 0. Applying Module 1 Feedback to PawPal+
+
+The Game Glitch Investigator review surfaced five specific weaknesses. Here is how each one shaped PawPal+:
+
+| # | Module 1 feedback | How I applied it in PawPal+ |
+|---|---|---|
+| 1 | *"Your test suite covers the two simplest functions but not the ones where you actually changed behavior."* | Every algorithm I implemented (including AI-suggested code) has at least one test. The two subtlest algorithms (`detect_overlaps`, `find_next_available_slot`) have **three tests each**, covering happy path, edge case, and boundary. See Section 3a. |
+| 2 | *"Be careful about asserting on exact error-message strings; that couples your tests to copy rather than behavior."* | **No test in PawPal+ asserts on a message string.** Every test asserts on functional outcomes — returned lists, numbers, `None`, or object equality. |
+| 3 | *"Your difficulty configuration is split across files... keeping one source of truth for game configuration would make adding a difficulty a single edit."* | **All configuration lives in `pawpal_system.py`.** Working hours, priority ranking, 30-minute duration, defaults — all defined once. `app.py` imports constants, never re-declares them. |
+| 4 | *"Read your own comments against the code: the block before `st.stop()` says 'Still render the summary table below before stopping,' but `st.stop()` prevents everything after it from rendering."* | Every comment in PawPal+ was verified by **exercising the path it describes**. The `st.sidebar` comment in `app.py` ("placed at the END of the script on purpose") was tested by confirming the metric picks up freshly updated values on the same rerun. |
+| 5 | *"The `f` prefixes on the hint strings in app.py have no placeholders; running your linter across the whole project rather than one or two files will surface small things like that."* | CI runs `ruff check .` and `ruff format --check .` on the **entire project**, including `.py`, `.md`, `.toml`, and `.yaml`. This rule caught a formatting issue inside `ai_interactions.md` (a Markdown code block) that per-file linting would have missed. Fixed in commit `97570e4`. |
+
+**The meta-lesson:** feedback is not a grade correction. It is a specification for how to work next time.
+
+---
+
 ## 1. System Design
 
 ### 1a. Initial design
@@ -11,28 +31,32 @@ I identified **four core classes** from the client feature request:
 | **Task** | A single care activity | `description`, `time`, `due_date`, `completed`, `frequency`, `priority` | `mark_complete()`, `to_dict()`, `from_dict()` |
 | **Pet** | A pet and its task list | `name`, `species`, `age`, `tasks` | `add_task()`, `get_tasks()`, `get_incomplete_tasks()` |
 | **Owner** | The user and their pets | `name`, `pets` | `add_pet()`, `get_all_tasks()` |
-| **Scheduler** | The "brain" — all algorithms | (stateless) | `sort_by_time()`, `sort_by_priority()`, `filter_by_completion()`, `filter_by_pet_name()`, `detect_conflicts()`, `detect_overlaps()`, `handle_recurring()`, `find_next_available_slot()` |
+| **Scheduler** | The "brain" — all algorithms | (stateless) | 8 algorithms — see Section 2b |
 
 **Three core actions a user can perform:**
-1. **Register a pet** under their name (Owner → add_pet → Pet).
-2. **Schedule a care task** for a specific pet (Pet → add_task → Task).
-3. **View today's plan** across all pets, sorted by time or priority.
+
+1. **Register a pet** under their name (`Owner.add_pet()` → `Pet`).
+2. **Schedule a care task** for a specific pet (`Pet.add_task()` → `Task`).
+3. **View today's plan** across all pets, sorted by time or priority (`Scheduler.sort_by_*()`).
 
 **Design rationale:**
-- The **data classes** (Task, Pet, Owner) are pure `@dataclass` containers — no behavior beyond tiny helpers.
-- The **Scheduler** is a separate service class holding all algorithms. This keeps logic testable in isolation (I can pass a plain `list[Task]` without setting up an Owner/Pet hierarchy).
+
+- **Data classes** (Task, Pet, Owner) use `@dataclass` and store data only.
+- The **Scheduler** is a pure service class holding all algorithms. Every algorithm can be tested with a plain `list[Task]` — no need to set up an Owner/Pet hierarchy just to run a sort.
 
 ### 1b. Design changes
 
-After implementing the algorithms and running the Streamlit UI, I made these changes:
+After implementing and deploying, I made these changes:
 
-1. **Added `priority` field to Task.** The original design only had `time` and `frequency`. After testing, it became clear that a real pet owner cares about "high priority vs low priority", and it enabled a useful sort dimension.
+1. **Added `priority` field to `Task`.** The original design had only `time` and `frequency`. Manual testing with a multi-pet owner revealed that "which task first?" is a real UX question — priority-based sorting answered it.
 
-2. **Added `detect_overlaps()` beyond `detect_conflicts()`.** The original design only detected *exact* time collisions. But two tasks at 07:00 and 07:15 visually "overlap" from a pet owner's perspective (assuming 30-minute tasks). Adding this method required deciding on a fixed 30-minute duration assumption (documented in ADR-003 and ADR-004).
+2. **Added `detect_overlaps()` beyond `detect_conflicts()`.** Original design only caught *exact* time collisions (07:00 vs 07:00). But 07:00 and 07:15 visually overlap from a pet owner's perspective (assuming 30-min tasks). This required a documented fixed-duration assumption (see ADR-003).
 
-3. **Added `find_next_available_slot()`.** Originally not in the design. When a user tries to add a new task and there's a conflict, showing them the next free 30-min or 60-min window is a small feature with high UX payoff.
+3. **Added `find_next_available_slot()`.** Not in the original design. During UI testing, when a user hit a conflict, the natural question was "when *can* I do this?" This method answers it in O(n log n).
 
-4. **Switched to session-only data storage for the deployed version.** The original design wrote to a single `data.json` on the server. I realized during deployment that this leaks every user's data to every other user. Fixed by keeping state in `st.session_state` and offering manual export/import. Documented in ADR-007.
+4. **Moved from shared server storage to session-scoped state.** Original design wrote to a single `data.json` on the server. During deployment I realized this leaks every user's data to every other user. Fixed with `st.session_state` + manual export/import. Documented as ADR-007.
+
+**Applied from Module 1 feedback:** every constant in this section (working hours, priority ranking, duration defaults) lives in **one file** — `pawpal_system.py`. `app.py` never re-declares game settings.
 
 ---
 
@@ -40,59 +64,82 @@ After implementing the algorithms and running the Streamlit UI, I made these cha
 
 ### 2a. Constraints and priorities
 
-The scheduling logic is built around these constraints:
-
-- **Time window:** The working day is 06:00–22:00 (configurable constant in `find_next_available_slot()`).
-- **Priority ordering:** Tasks are ranked `high` > `medium` > `low`. Within the same priority, earlier `time` wins.
-- **Duration assumption:** Since Task has no `duration` field, I assume **every task takes 30 minutes** when computing overlaps and gaps. This is a simplification — see Tradeoffs below.
-- **Conflict types:**
+- **Working day:** 06:00–22:00, defined as constants in `find_next_available_slot()`.
+- **Priority ranking:** `high` > `medium` > `low`. Ties broken by earlier `time`.
+- **Duration assumption:** every task occupies **30 minutes** for overlap and gap logic. Documented in docstrings.
+- **Conflict definitions:**
   - *Exact conflict:* two tasks share the same `time`.
-  - *Overlap:* two tasks' 30-minute windows intersect.
+  - *Overlap:* two tasks' 30-minute windows intersect (07:00 + 07:15 overlaps; 07:00 + 07:30 does **not**).
 
 ### 2b. Tradeoffs
 
 | Tradeoff | Decision | Why |
 |---|---|---|
-| **Time as string vs `datetime.time`** | Chose string `"HH:MM"` | Zero-padded 24-hour strings sort correctly with default `sorted()`. Simplifies JSON serialization and Streamlit's `st.time_input` integration. Loses seconds/timezone granularity (acceptable). |
-| **`detect_conflicts()` O(n²) vs O(n) hashmap** | Chose O(n²) | For a single owner with a handful of pets and tasks, n stays small (< 50). Simpler, obviously correct. Would refactor to a hashmap if scaling to hundreds of tasks. |
-| **30-min duration assumption** | Hardcoded constant | Task has no duration field, so overlap/gap logic needs an assumption. 30 min is a reasonable default for pet care tasks (a walk, a feeding). Users can't customize yet. |
-| **Regex AI parser vs LLM** | Chose regex | Zero cost, offline, deterministic, sub-millisecond, no flakiness. Covers 95% of realistic phrasings like "walk Cooper at 7am daily, high priority". An LLM layer could handle ambiguous inputs, but the marginal gain doesn't justify the cost. |
-| **Session-only data vs DB** | Chose session-only | A public demo should not store PII on a shared server. Manual JSON export/import gives users full control. Documented in ADR-007. |
+| **Time as `str` vs `datetime.time`** | String `"HH:MM"` | Zero-padded 24-hour strings sort with plain `sorted()`. Simplifies JSON + `st.time_input`. Loses seconds/timezone precision — acceptable. |
+| **`detect_conflicts()` O(n²) vs O(n) hashmap** | O(n²) | For a single owner with n < 50 tasks, simpler and obviously correct. Would refactor if scaling to hundreds. |
+| **30-min duration assumption** | Hardcoded constant | Task has no duration field. 30 min is a reasonable default for pet care. Documented. |
+| **Regex AI parser vs LLM** | Regex | Zero cost, offline, deterministic, sub-millisecond, testable. Covers 95% of realistic phrasings. |
+| **Session-only data vs DB** | Session-only | A public demo must not store PII on a shared server. Documented in ADR-007. |
+| **`Optional[X]` vs `X \| None`** | `X \| None` | Enforced by `from __future__ import annotations` (PEP 604). Ruff rule UP045 also enforces this. |
 
 ---
 
 ## 3. AI Collaboration
 
-### 3a. How I used AI
+### 3a. How I used AI — and how Module 1 feedback changed my workflow
 
-I used **ChatGPT and Gemini** as design sparring partners, not code generators. Specifically:
+I used **ChatGPT and Gemini** as design sparring partners, not code generators.
 
-- **UML brainstorming:** I asked ChatGPT to help me enumerate the four candidate classes and their likely attributes/methods. Then I refined the diagram manually.
-- **Class scaffolding:** I asked Gemini to generate `@dataclass` skeletons for Task, Pet, and Owner. It initially suggested plain classes with manual `__init__` — I redirected it to `@dataclass` to reduce boilerplate.
-- **Algorithm drafting:** I asked for `find_next_available_slot()` and `detect_overlaps()` implementations. It proposed clean algorithms, but I caught a subtle assumption in the overlap logic (30-minute fixed duration) that wasn't documented — I added the docstring myself.
-- **Natural language parser:** I asked both models for a regex-based task parser. ChatGPT's version was more Pythonic (used `enumerate()` and slicing); Gemini's was more readable but verbose. I combined the best parts.
-- **Refactoring review:** I asked ChatGPT to review `nl_parser.py` for edge cases. It suggested adding a "no time found" error, which I adopted.
+**Before Module 1 feedback, my workflow was:**
+1. Ask AI for code
+2. Paste it
+3. Move on
+
+**After Module 1 feedback** (*"every bug fix and every hand-corrected AI output deserves a test"*), my workflow became:
+
+1. Ask AI for code
+2. **Read it carefully** — list every assumption it makes
+3. **Write tests BEFORE pasting** — including the boundary cases the AI didn't mention
+4. Integrate
+5. **Verify manually in the running app**
+
+**Concrete example — `detect_overlaps()`:**
+
+- **Gemini** proposed a working algorithm. It assumed 30-minute task durations but never stated this.
+- **I wrote two tests before pasting:** `test_detect_overlaps_within_30_min_window` (07:00 + 07:15) and `test_detect_overlaps_no_overlap_exact_boundary` (07:00 + 07:30 — should **not** overlap).
+- **The second test was my own addition.** The AI's explanation didn't mention the boundary. Without that test, a future refactor could silently break the edge case.
+- **Result:** the AI-suggested code shipped, but with a safety net that the AI itself didn't provide.
+
+**Concrete example — `find_next_available_slot()`:**
+
+- **Gemini** proposed the algorithm.
+- **I added 3 tests:** first-gap, dense-morning, and fully-booked-day.
+- **The "fully-booked" test** verifies that the function returns `"None available today"` rather than crashing or returning a bogus time.
+
+**Total:** every algorithm in `pawpal_system.py` has at least one test. The two subtlest ones have three each.
 
 ### 3b. Judgment and verification
 
 **Where I rejected AI suggestions:**
 
-1. **ChatGPT suggested extracting a `Recurrence` class** to handle recurring tasks separately from `Scheduler`. I rejected this because the logic was only 3 lines (`task.due_date + timedelta(days=1 or 7)`) and adding a 5th class would break the UML I'd already committed to.
+1. **ChatGPT proposed a separate `Recurrence` class** for recurring tasks. Rejected: the logic is 3 lines (`due_date + timedelta(days=1 or 7)`); a 5th class would break the UML and add zero value.
 
-2. **Gemini suggested adding `Optional[X]` type hints** to methods that might return `None`. I rejected this because the file uses `from __future__ import annotations`, which allows the cleaner `X | None` syntax. Ruff (in CI) later flagged the same issue — my choice was validated by the linter.
+2. **Gemini proposed `Optional[X]` type hints.** Rejected: file uses `from __future__ import annotations` (PEP 604 syntax allowed). Ruff's UP045 rule later validated this — it would flag `Optional[X]` as non-idiomatic.
 
-3. **Both models suggested using an LLM (OpenAI API) for the natural language parser.** I rejected this because:
-   - It adds cost per request
-   - It requires an API key on the deployment (security issue)
-   - It's non-deterministic (harder to test)
-   - The bounded vocabulary of pet care tasks is handled fine by regex
+3. **Both models suggested an LLM (OpenAI API) for the parser.** Rejected: cost, security surface (API key on deployment), non-determinism (breaks tests), and — critically — **the bounded vocabulary of pet-care tasks is handled fine by regex.**
+
+**Applied from Module 1 feedback:**
+
+- **Comments must match code.** Every comment in PawPal+ was verified by exercising the described path. The `st.sidebar` comment ("placed at the END of the script on purpose") was confirmed by testing that the sidebar metrics update on the same rerun as the state change.
+- **Lint the whole project, not just a couple of files.** CI runs `ruff check .` across all file types. This caught a Markdown code-block formatting issue in `ai_interactions.md` that per-file linting would have missed. Fixed in commit `97570e4`.
+- **No asserts on error-message strings.** Every test asserts on behavior (returned values, list contents, `None`, object equality), never on message copy.
 
 **How I verified everything:**
 
 - **28 pytest tests**, 100% coverage on `pawpal_system.py`
-- **Manual testing** of the Streamlit UI end-to-end
-- **GitHub Actions CI** running both tests and linting on every push
-- **Ruff linter** clean (`ruff check .` → `All checks passed!`)
+- **Manual end-to-end testing** of the Streamlit UI on every commit
+- **GitHub Actions CI** on Python 3.12 + 3.13 for every push
+- **Ruff linter** — `All checks passed!` on the whole project
 - **Deployed live** to Streamlit Cloud and tested in a browser
 
 ---
@@ -101,32 +148,37 @@ I used **ChatGPT and Gemini** as design sparring partners, not code generators. 
 
 ### 4a. What I tested
 
-The test suite (`tests/test_pawpal.py`) covers:
+Every public method of every class has at least one test:
 
-- **Task behavior:** `mark_complete()`, default fields, `to_dict()`/`from_dict()` round-trip
-- **Pet behavior:** `add_task()`, `get_incomplete_tasks()` filtering, JSON round-trip
-- **Owner behavior:** `get_all_tasks()` aggregation across pets, empty-owner edge case
-- **Scheduler sorting:** `sort_by_time()`, `sort_by_priority()` with tie-breaking
-- **Scheduler filtering:** by completion, by pet name, unknown-pet returns empty
-- **Conflict detection:** duplicate times, empty list, 30-minute overlaps, exact-boundary case
-- **Recurring tasks:** daily (+1 day), weekly (+7 days), once (returns `None`)
-- **Next-slot finder:** first-gap, dense morning, fully-booked day
-- **JSON persistence:** save/load round-trip, missing-file fallback
+**Task (4 tests):** `mark_complete()`, default priority, default frequency, JSON round-trip.
+**Pet (3 tests):** `add_task()`, `get_incomplete_tasks()`, JSON round-trip.
+**Owner (3 tests):** `get_all_tasks()`, empty owner, JSON round-trip.
+**Scheduler sorting (3):** by time, by priority, ties broken by time.
+**Scheduler filtering (3):** by completion, by pet name, unknown pet returns empty.
+**Conflicts & overlaps (4):** exact duplicates, empty list, overlap within 30 min, exact-boundary no-overlap.
+**Recurring (3):** daily, weekly, once.
+**Next slot (3):** first gap, dense morning, fully-booked day.
+**Persistence (2):** full round-trip, missing file fallback.
 
-**28 tests total, 100% line coverage on `pawpal_system.py`.**
+**28 tests total. 100% line coverage on `pawpal_system.py`.**
+
+**Explicitly aligned with Module 1 feedback:**
+- ✅ Every bug-fix or AI-corrected behavior has a test
+- ✅ **Zero** assertions on exact error-message strings
+- ✅ Boundary cases covered (exact-time boundary, fully-booked day, empty owner)
 
 ### 4b. Confidence
 
 ⭐⭐⭐⭐⭐ (5/5)
 
 - Every line of domain logic is covered by an automated test.
-- The critical algorithms (conflicts, overlaps, next-slot) are tested with both happy-path and edge cases.
+- Critical algorithms have happy-path, edge-case, and boundary tests.
 - CI runs the full suite on **Python 3.12 and 3.13** on every push.
-- The deployed app was manually verified end-to-end.
+- The deployed app was manually verified end-to-end on desktop and mobile.
 
-**Remaining gaps (out of scope):**
-- No tests for `app.py` UI logic (Streamlit makes this harder).
-- No stress test beyond 2000 tasks (though `benchmark.py` shows scalability).
+**Remaining gaps (out of scope for the module):**
+- No automated tests for `app.py` UI logic (Streamlit's execution model requires Playwright/Selenium).
+- No stress test beyond n=2000 (though `benchmark.py` shows the scaling curve).
 
 ---
 
@@ -134,29 +186,38 @@ The test suite (`tests/test_pawpal.py`) covers:
 
 ### 5a. What went well
 
-- **Modular architecture.** The four-class split kept everything testable and made it easy to add the FastAPI layer and AI parser without touching the core.
-- **High test coverage from day one.** Writing tests alongside the algorithms caught bugs immediately.
-- **Deployment was smooth.** Streamlit Cloud was a 5-minute setup. Having the app live made everything feel "real".
-- **The AI parser demo is a showstopper.** Typing `"walk Cooper at 7am daily"` and seeing a structured preview feels like magic, even though it's just regex.
-- **CI green from day one.** Once I fixed the `python -m pytest` sys.path issue, the badge was green and stayed green.
+- **The four-class split aged well.** Once the Scheduler was isolated as a pure service class, adding FastAPI, the AI parser, and the benchmark script became purely additive — zero changes needed in `pawpal_system.py`.
 
-### 5b. What you would improve
+- **Tests written alongside code.** Because I wrote a test immediately after every AI-generated algorithm, code review never turned into a debugging session. Failures were caught in seconds.
 
-- **Add a database layer** (SQLite or Supabase) with user authentication so data persists per-user properly.
-- **Add task durations.** Currently everything is assumed 30 min. A real app would track actual durations.
-- **Better time zone handling.** Using `date.today()` is timezone-naive.
-- **Expand the AI parser** with an optional LLM fallback for ambiguous inputs (e.g., "walk the dog sometime in the morning").
-- **More UI polish.** Right now the Streamlit UI is functional but plain. Adding tabs animations, custom CSS, and a nicer mobile layout would help.
-- **Split the UI into pages.** Streamlit's multi-page pattern would be cleaner than four tabs for a growing app.
+- **Deployment was 5 minutes.** Streamlit Cloud detected the repo and built it without config.
+
+- **The AI parser is a showstopper.** Typing `"walk Cooper at 7am daily"` and seeing a structured preview feels like magic — even though it's regex.
+
+- **CI green from the second commit.** The first failure was because I used bare `pytest` instead of `python -m pytest` on Linux runners. One fix, and the badge stayed green.
+
+- **The Module 1 feedback became a design checklist**, not just a past grade. Every bullet from the reviewer is now a **rule** in my workflow: write a test for every fix, don't assert on copy, one source of truth for config, verify comments against code, lint the whole project.
+
+### 5b. What I would improve
+
+- **Add a database layer** (SQLite/Supabase) with authentication for per-user persistence.
+- **Track actual task durations** — the 30-minute assumption is a simplification.
+- **Handle timezones** explicitly (`date.today()` is naive).
+- **Optional LLM fallback** for the parser (regex handles 95%; the LLM would handle the tail).
+- **Split the Streamlit UI into pages.**
+- **Add end-to-end UI tests** with Playwright to cover the AI Assistant flow.
 
 ### 5c. Key takeaway
 
 **AI is a force multiplier when used as a design reviewer, not a code oracle.**
 
-The two most valuable things AI did for me were:
-1. **Challenging my design** (proposing a `Recurrence` class forced me to articulate *why* I was rejecting it).
-2. **Comparing multiple approaches** (ChatGPT's regex vs Gemini's regex showed me two valid tradeoff profiles).
+The two most valuable things AI did were:
 
-But every suggestion had to be **verified, tested, and often modified**. The 28 tests + CI pipeline weren't just for the rubric — they were the safety net that let me accept AI code with confidence.
+1. **Challenging my design** — when ChatGPT proposed a `Recurrence` class, I had to articulate *why* I was rejecting it, which clarified when abstraction adds value.
+2. **Offering two valid approaches** — comparing ChatGPT's regex parser against Gemini's showed me two defensible tradeoff profiles, forcing me to be explicit about what mattered: determinism, cost, and testability.
 
-**"The bugs were the curriculum"** — I learned more from debugging the AI's suggestions than from any tutorial I've taken.
+But **every suggestion had to be verified, tested, and often modified.**
+
+**The single most important habit I took from Module 1:** every bug fix gets a test; every hand-corrected AI output gets a test. If behavior has *proven* it can regress, it deserves to be pinned down.
+
+**"The bugs were the curriculum"** — I learned more from debugging the AI's edge-case oversights than from any tutorial I've taken.
